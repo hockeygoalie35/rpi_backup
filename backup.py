@@ -8,15 +8,19 @@ from colorama import init, Fore
 import datetime
 import json
 import traceback
+import sys
+
+
+
 
 def log_error(log_string):
     print(Fore.RED + datetime.datetime.strftime(datetime.datetime.now(),'%D-%H:%M:%S') + " " + log_string)
-    with open('./rpi_backup/python_log.txt', 'a') as savefile:
+    with open(f'{script_directory}/python_log.txt', 'a') as savefile:
         savefile.write("------------------------------------\n"+datetime.datetime.strftime(datetime.datetime.now(),'%D-%H:%M:%S') + ":\n " + log_string + "\n")
         savefile.close()
 def log(log_string):
     print(Fore.GREEN+ datetime.datetime.strftime(datetime.datetime.now(),'%D-%H:%M:%S') + " " + log_string)
-    with open('./rpi_backup/python_log.txt', 'a') as savefile:
+    with open(f'{script_directory}/python_log.txt', 'a') as savefile:
         savefile.write(datetime.datetime.strftime(datetime.datetime.now(),'%D-%H:%M:%S') + ": " + log_string + "\n")
         savefile.close()
 
@@ -30,14 +34,14 @@ def run_backup():
 
     # Try to load credentials, if not, create the file and ask user to fill
     try:
-        with open('./rpi_backup/creds.json') as openfile:
+        with open(f'{script_directory}/creds.json') as openfile:
             # Reading from json file
             creds = json.load(openfile)  # loads in the credential dict
             openfile.close()
     except:
         creds = {"path": "","username": "","password": "","uid": ""}
         creds = json.dumps(creds)
-        with open('./rpi_backup/creds.json', 'w') as savefile:
+        with open(f'{script_directory}/creds.json', 'w') as savefile:
             savefile.write(creds)
         log_error("creds.json created.")
         exit(0)
@@ -48,7 +52,7 @@ def run_backup():
 
 
     # Ensure Image-Utils was downloaded and ask user to do so if not
-    if os.path.exists('./image-utils/image-backup') is False:
+    if os.path.exists(f'{script_directory}/image-utils/image-backup') is False:
         log_error("Please Download Image-Utils and place in this folder /rpi_backup/image-utils\nhttps://forums.raspberrypi.com/viewtopic.php?t=332000")
         exit("missing utils")
     # Backup Settings
@@ -116,6 +120,10 @@ def run_backup():
     log( "\n--------------------------------------------------")
 
 if __name__ == '__main__':
+    # Get Script directory
+    script_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
+    print(script_directory)
+
     try:
         run_backup()
     except Exception:
