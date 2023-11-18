@@ -39,7 +39,7 @@ def run_backup():
         creds = json.dumps(creds)
         with open('./creds.json', 'w') as savefile:
             savefile.write(creds)
-        log_error(Fore.RED+"fill out creds.json")
+        log_error("creds.json created.")
         exit(0)
     path=creds["path"]
     username=creds["username"]
@@ -49,7 +49,7 @@ def run_backup():
 
     # Ensure Image-Utils was downloaded and ask user to do so if not
     if os.path.exists('./image-utils/image-backup') is False:
-        log_error(Fore.RED + "Please Download Image-Utils and place in this folder /rpi_backup/image-utils\nhttps://forums.raspberrypi.com/viewtopic.php?t=332000")
+        log_error("Please Download Image-Utils and place in this folder /rpi_backup/image-utils\nhttps://forums.raspberrypi.com/viewtopic.php?t=332000")
         exit("missing utils")
     # Backup Settings
     filesize_buffer = 5000
@@ -98,7 +98,7 @@ def run_backup():
     log( "Docker disabled (Temporarily)")
     os.system("sudo systemctl disable docker --now")
     os.system("sudo systemctl disable docker.socket --now")
-    os.system(f"sudo bash rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
+    os.system(f"sudo bash $HOME/rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
 
 
 
