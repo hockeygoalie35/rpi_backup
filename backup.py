@@ -11,12 +11,12 @@ import traceback
 
 def log_error(log_string):
     print(Fore.RED + datetime.datetime.strftime(datetime.datetime.now(),'%D-%H:%M:%S') + " " + log_string)
-    with open('.//python_log.txt', 'a') as savefile:
+    with open('./rpi_backup/python_log.txt', 'a') as savefile:
         savefile.write("------------------------------------\n"+datetime.datetime.strftime(datetime.datetime.now(),'%D-%H:%M:%S') + ":\n " + log_string + "\n")
         savefile.close()
 def log(log_string):
     print(Fore.GREEN+ datetime.datetime.strftime(datetime.datetime.now(),'%D-%H:%M:%S') + " " + log_string)
-    with open('.//python_log.txt', 'a') as savefile:
+    with open('./rpi_backup/python_log.txt', 'a') as savefile:
         savefile.write(datetime.datetime.strftime(datetime.datetime.now(),'%D-%H:%M:%S') + ": " + log_string + "\n")
         savefile.close()
 
@@ -30,14 +30,14 @@ def run_backup():
 
     # Try to load credentials, if not, create the file and ask user to fill
     try:
-        with open('./creds.json') as openfile:
+        with open('./rpi_backup/creds.json') as openfile:
             # Reading from json file
             creds = json.load(openfile)  # loads in the credential dict
             openfile.close()
     except:
         creds = {"path": "","username": "","password": "","uid": ""}
         creds = json.dumps(creds)
-        with open('./creds.json', 'w') as savefile:
+        with open('./rpi_backup/creds.json', 'w') as savefile:
             savefile.write(creds)
         log_error("creds.json created.")
         exit(0)
