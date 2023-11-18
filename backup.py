@@ -98,7 +98,7 @@ def run_backup():
     log( "Docker disabled (Temporarily)")
     os.system("sudo systemctl disable docker --now")
     os.system("sudo systemctl disable docker.socket --now")
-    os.system(f"sudo bash $HOME/rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
+    os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
 
 
 
