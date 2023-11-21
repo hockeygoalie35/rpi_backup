@@ -36,6 +36,10 @@ class rpi_backup():
             self.enable_cron()
         if self.argument.disablecron:
             self.disable_cron()
+        if self.argument.uninstall:
+            answer = input("Are you sure you want to uninstall? y/n")
+            if answer == "y":
+                self.wipe_rpi_backup()
 
     def argument_parsing(self):
         parser = argparse.ArgumentParser(description="CLI Commands")
@@ -133,6 +137,24 @@ class rpi_backup():
 
         log('s',"Backup Completed")
         log('i',"\n--------------------------------------------------")
+
+
+    def wipe_rpi_backup(self): # wipes rpi_backups to test deployment
+        log('i', 'Unmounting drive')
+        os.system(f"sudo umount /mnt/backups")  # unmount backups
+        mount_list = str(subprocess.run('mount -l', shell=True, stdout=subprocess.PIPE).stdout.decode("utf-8"))
+        if '/mnt/backups' not in mount_list:
+            log('s', "Backup Drive Unmounted Successfully")
+        else:
+            log('e', "Backup Drive Could Not Be Unmounted")
+            exit(1)
+        os.system('sudo rm -r /mnt/backups') # delete backup location
+        log('s', "deleted /mnt/backups")
+        os.system(f"sudo sed -i.bak '/backups/d' /etc/fstab")  # remove the line from Fstab
+        log('s', "Removed line from FSTAB")
+        os.system("sudo systemctl daemon-reload")  # reload fstab to daemon
+        print('rpi_backups uninstalled, go home and run "rm -r ./rpi_backup" to delete folder')
+
 
 
 
