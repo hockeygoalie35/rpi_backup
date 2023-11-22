@@ -151,6 +151,8 @@ class rpi_backup():
         else:
             log('e', "Backup Drive Could Not Be Unmounted")
             exit(1)
+        os.system(f"crontab -l | grep -v '{self.script_directory}/rpi_backup_venv/bin/python {self.script_directory}/backup.py -rb'  | crontab -")
+        log('s',"cronjob disabled")
         os.system('sudo rm -r /mnt/backups') # delete backup location
         log('s', "deleted /mnt/backups")
         os.system(f"sudo sed -i.bak '/backups/d' /etc/fstab")  # remove the line from Fstab
