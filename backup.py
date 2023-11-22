@@ -127,7 +127,7 @@ class rpi_backup():
         os.system("sudo systemctl disable docker --now")
         log('i', "Beginning image-backup")
         # # backup string
-        os.system(f"bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
+        os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
         log('i', "image-backup Finishing")
         # Unmount network drive
         os.system("sudo umount /mnt/backups")
