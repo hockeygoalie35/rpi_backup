@@ -20,13 +20,13 @@ class rpi_backup():
         if self.argument.setup:
             credentials_dict = {
                 "-networkpath": self.argument.networkpath,
-                "-user": self.argument.user,
+                "-username": self.argument.username,
                 "-password": self.argument.password,
                 "-uid": self.argument.uid}
             mnt_path = '/mnt/backups'
             print(Fore.GREEN + '\n\n########|STARTING SETUP|#########')
             self.check_networks_drive_credentials(credentials_dict)
-            create_cifs_drive(credentials_dict['-networkpath'], mnt_path, credentials_dict['-user'], credentials_dict['-password'])
+            create_cifs_drive(credentials_dict['-networkpath'], mnt_path, credentials_dict['-username'], credentials_dict['-password'])
             print(Fore.GREEN + '#########|SETUP Complete|#########\n\n')
         if self.argument.runbackup:
             print(Fore.GREEN + '\n\n########|STARTING BACKUP|#########')
@@ -48,18 +48,19 @@ class rpi_backup():
         parser.add_argument("-ec", "--enablecron", help="enables cronjob to schedule backup", required=False,default=False, action='store_true')
         parser.add_argument("-dc", "--disablecron", help="enables cronjob to schedule backup", required=False,default=False, action='store_true')
         parser.add_argument("-networkpath", help="path to network share", required=False, default=False)
-        parser.add_argument("-user", help="network share username", required=False, default=False)
+        parser.add_argument("-username", help="network share username", required=False, default=False)
         parser.add_argument("-password", help="network share password", required=False, default=False)
-        parser.add_argument("-uid", help="path to network share", required=False, default=False)
+        parser.add_argument("-uid", help="user,run whoami to get answer", required=False, default=False)
+        parser.add_argument("-uninstall", help="uninstalls network drive from fstab", required=False, default=False)
         self.argument = parser.parse_args()
     def enable_cron(self): # TODO Test this func to make sure it works
-        os.system(f'(crontab -l ; echo "0 0 1 * * sudo {self.script_directory}/rpi_backup_venv/bin/python {self.script_directory}/backup.py >> {self.script_directory}/logs/cron.log") | crontab -')
+        os.system(f'(crontab -l ; echo "0 0 1 * * sudo {self.script_directory}/rpi_backup_venv/bin/python {self.script_directory}/backup.py -rb>> {self.script_directory}/logs/cron.log") | crontab -')
         os.system(f'echo "# Log for Backups running through Cron" > {self.script_directory}/logs/cron.log')
         os.system(f'echo "---------------------------------------" >> {self.script_directory}/logs/cron.log')
-        print("cronjob enabled")
+        log('i',"cronjob enabled")
     def disable_cron(self):
-        os.system(f"crontab -l | grep -v 'sudo {self.script_directory}/rpi_backup_venv/bin/python {self.script_directory}/backup.py'  | crontab -")
-        print("cronjob disabled")
+        os.system(f"crontab -l | grep -v '{self.script_directory}/rpi_backup_venv/bin/python {self.script_directory}/backup.py -rb'  | crontab -")
+        log('i',"cronjob disabled")
 
 
     def check_networks_drive_credentials(self,credentials_dict):
@@ -97,6 +98,8 @@ class rpi_backup():
             log('s',"Backup Drive Mounted")
         else:
             log('e',"Mount Error! See above error.")
+            log('e', "If first time running, re-run with -s flag instead to do initial setup")
+            exit(1)
 
 
         # Get hostname and see if directory exists
@@ -124,7 +127,7 @@ class rpi_backup():
         os.system("sudo systemctl disable docker --now")
         log('i', "Beginning image-backup")
         # # backup string
-        os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
+        os.system(f"bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
         log('i', "image-backup Finishing")
         # Unmount network drive
         os.system("sudo umount /mnt/backups")
