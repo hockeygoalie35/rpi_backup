@@ -54,7 +54,7 @@ class rpi_backup():
         parser.add_argument("-uninstall", help="uninstalls network drive from fstab", required=False, default=False, action='store_true')
         self.argument = parser.parse_args()
     def enable_cron(self): # TODO Test this func to make sure it works
-        os.system(f'(crontab -l ; echo "0 0 1 * * sudo {self.script_directory}/rpi_backup_venv/bin/python {self.script_directory}/backup.py -rb>> {self.script_directory}/logs/cron.log") | crontab -')
+        os.system(f'(crontab -l ; echo "0 0 1 * * {self.script_directory}/rpi_backup_venv/bin/python {self.script_directory}/backup.py -rb>> {self.script_directory}/logs/cron.log") | crontab -')
         os.system(f'echo "# Log for Backups running through Cron" > {self.script_directory}/logs/cron.log')
         os.system(f'echo "---------------------------------------" >> {self.script_directory}/logs/cron.log')
         log('i',"cronjob enabled")
