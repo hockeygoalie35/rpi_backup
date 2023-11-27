@@ -125,6 +125,7 @@ class rpi_backup():
         os.system("sudo docker stop $(sudo docker ps -a -q)")
         os.system("sudo systemctl disable docker.socket --now")
         os.system("sudo systemctl disable docker --now")
+
         log('i', "Beginning image-backup")
         # # backup string
         os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{hostname}/{hostname}_$(date +%d-%b-%y_%T).img,{filesystem_size},{incremental_size}")
@@ -136,6 +137,10 @@ class rpi_backup():
         # Enable Docker
         os.system("sudo systemctl enable docker --now")
         os.system("sudo systemctl enable docker.socket --now")
+        os.system("sudo docker start wireguard_pia portainer")
+        # Enable and fill this if you need containers to start in an order I.e. a vpn container.
+        time.sleep(5)  # You can duplicate & change the time however many dependencies you have
+        os.system("sudo docker start $(sudo docker ps -a -q)")  # restart all rest of containers
 
         log('i', "Docker Re-enabled")
 
