@@ -136,9 +136,6 @@ class rpi_backup():
         # Enable Docker
         os.system("sudo systemctl enable docker --now")
         os.system("sudo systemctl enable docker.socket --now")
-        os.system("sudo docker start wireguard_pia portainer") # Enable and fill this if you need containers to start in an order
-        time.sleep(10)
-        os.system("sudo docker start $(sudo docker ps -a -q)") # i.e. VPN
 
         log('i', "Docker Re-enabled")
 
