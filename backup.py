@@ -2,11 +2,9 @@ import os
 import sys
 import subprocess
 from colorama import init, Fore
-import datetime
-import json
-import traceback
 import argparse
 from pi_functions import *
+import time
 
 
 
@@ -107,7 +105,7 @@ class rpi_backup():
         hostname = str(subprocess.check_output(cmd, shell=True).decode('utf-8')).replace("\n", "")
         if os.path.exists(f'/mnt/backups/{hostname}') is False:
             log('i',f"Creating Directory {hostname}")
-            os.system('sudo mkdir /mnt/backups/{hostname}')
+            os.system(f'sudo mkdir /mnt/backups/{hostname}')
 
         # Get Filesystem size
         cmd = "df -h /|awk '/\/dev\//{printf(\"%.2f\",$3);}'"
@@ -121,8 +119,10 @@ class rpi_backup():
         # Get uid
         uid = str(subprocess.check_output('whoami', shell=True).decode('utf-8')).replace("\n", "")
         log('i',f'Identified user as {uid}')
+
         # Disable Docker
         log('i',"Docker disabled (Temporarily)")
+        os.system("sudo docker stop $(sudo docker ps -a -q)")
         os.system("sudo systemctl disable docker.socket --now")
         os.system("sudo systemctl disable docker --now")
         log('i', "Beginning image-backup")
@@ -136,6 +136,10 @@ class rpi_backup():
         # Enable Docker
         os.system("sudo systemctl enable docker --now")
         os.system("sudo systemctl enable docker.socket --now")
+        os.system("sudo docker start wireguard_pia portainer") # Enable and fill this if you need containers to start in an order
+        time.sleep(10)
+        os.system("sudo docker start $(sudo docker ps -a -q)") # i.e. VPN
+
         log('i', "Docker Re-enabled")
 
         log('s',"Backup Completed")
