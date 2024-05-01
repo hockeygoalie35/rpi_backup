@@ -1,8 +1,9 @@
 import logging
 from os import path, mkdir
+from datetime import datetime
 
 
-class CustomFormatter(logging.Formatter):
+class PrettyLoggingFormatter(logging.Formatter):  # With the sparkle :D
     def __init__(self, logger_name, version, info_color=None):
         fore_colors = {
             'BLACK': '\033[0;30m',
@@ -50,8 +51,8 @@ class CustomFormatter(logging.Formatter):
         else:
             info_color = fore_colors[info_color]
 
-        format = f'%(asctime)s :: {logger_name} :: {version} :: %(levelname)s :: '
-        datefmt = '%Y-%m-%d %H:%M:%s'
+        datefmt = '%Y-%m-%d %H:%M:%S'
+        format = f'{datetime.strftime(datetime.now(), datefmt)} :: {logger_name} :: {version} :: %(levelname)s :: '
 
         self.FORMATS = {
             logging.DEBUG:  format + fore_colors['CYAN'] + '%(message)s' + fore_colors['RESET'],
@@ -69,13 +70,33 @@ class CustomFormatter(logging.Formatter):
         return formatter.format(record)
 
 
+class LoggingFormatter(logging.Formatter):  # Without the sparkle :(
+    def __init__(self, logger_name, version):
+
+        datefmt = '%Y-%m-%d %H:%M:%S'
+        custom_format = f'{datetime.strftime(datetime.now(), datefmt)} :: {logger_name} :: {version} :: %(levelname)s :: %(message)s'
+        self.FORMATS = {
+            logging.DEBUG: custom_format,
+            logging.INFO: custom_format,
+            logging.WARNING: custom_format,
+            logging.ERROR: custom_format,
+            logging.CRITICAL: custom_format,
+            logging.FATAL: custom_format
+        }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+
 def init_logging(logger_name, version, log_file_path=None, info_color=None):
     # Initialize colorama
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
-    ch.setFormatter(CustomFormatter(logger_name, version, info_color))
+    ch.setFormatter(PrettyLoggingFormatter(logger_name, version, info_color))
     logger.addHandler(ch)
 
     if log_file_path:
@@ -83,9 +104,8 @@ def init_logging(logger_name, version, log_file_path=None, info_color=None):
             mkdir(path.dirname(log_file_path))
         log_file = logging.FileHandler(log_file_path, mode="a", encoding='utf-8')
         log_file.setLevel(logging.DEBUG)
-        log_file.setFormatter(CustomFormatter(logger_name, version))
+        log_file.setFormatter(LoggingFormatter(logger_name, version))  # Use non-colored formatter
         logger.addHandler(log_file)
-
     return logger
 
 
