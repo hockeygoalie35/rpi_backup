@@ -56,7 +56,7 @@ def create_cifs_drive(network_path,mnt_path,username,password,uid = "pi"):
             os.system(f'sudo mkdir {mnt_path}')
             log('i',f"Created mounting folder {mnt_path}")
         except:
-            log('e',"Could not create mounting folder. See above error")
+            log('e',"Could not create mounting folder. See above error.")
 
     create_cifs = True # Check to see if line is in Fstab for some reason
     with open('/etc/fstab') as fstab:
@@ -85,4 +85,5 @@ def create_cifs_drive(network_path,mnt_path,username,password,uid = "pi"):
         search_string = mnt_path.replace('/','[/]')
         os.system(f"sudo sed -i.bak '/{search_string}/d' /etc/fstab") # remove the line from Fstab
         log('w', "Removed faulty string from fstab")
+        log('w', fstab_string_formatted)
         exit(1)

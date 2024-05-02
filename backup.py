@@ -3,43 +3,36 @@ import sys
 import subprocess
 import argparse
 from pi_functions import create_cifs_drive
-import time
 from datetime import datetime
 import requests
 import time
+import configparser
 import linux_commands
-
-# TODO: Better error handling, unmount drive and restart containers on error.
-# TODO: ini file for ntfy and setup stuff
-# TODO: incremental backups
-# TODO: Add Fstab check to make sure mount doesn't exist!
-# TODO: Check if Docker is installed
-
-
 import prettylogging
 
+# TODO: Better error handling, unmount drive and restart containers on error. [x]
+# TODO: ini file for ntfy and setup stuff [x]
+# TODO: incremental backups
+# TODO: Add Fstab check to make sure mount doesn't exist!
+# TODO: Check if Docker is installed [x]
+# TODO: Setup thru config
+
+# backup.py
+VERSION = '1.9'
+CONFIG_PATH = './config.ini'
+BOOL_DICT = {'true': True, 'false': False}
+
+# Logging Consts
 NOW = datetime.strftime(datetime.now(), "%b-%d-%Y-%H-%M-%S")
 LOGGER_NAME = 'rpi_backup'
 LOG_OUTPUT_PATH = './logs/Backup-'+NOW+'.log'
-VERSION = '1.8'
-ntfyServerTopic="http://docker:9191/rpi_backup"
-ntfyUserToken="tk_98vch00s7fjntopamcfed95f2s77q"
-
-FILESIZE_BUFFER = 5000  # Image-Utils setting
-INCREMENTAL_SIZE = 0
 
 log = prettylogging.init_logging(LOGGER_NAME, VERSION, log_file_path=LOG_OUTPUT_PATH, info_color="GREEN")
-# //192.168.0.129/e/Homelab\docker /mnt/backups cifs username=Michael,password=$torage338,uid=pi
-class BackupFailed(BaseException):
-    def __init__(self,host_name,error_message, renable_docker=True,send_ntfy = True):  # TODO: you know
-        log.error(f"Backup of {host_name} failed:\n{error_message}")
-        # Unmount network drive
-        os.system("sudo umount /mnt/backups")
-        if renable_docker:  # if docker is installed, disable
-            linux_commands.enable_docker('wireguard_pia','portainer')
-        if send_ntfy:  # if ntfy is set up
-            ntfy_notify(ntfyServerTopic, ntfyUserToken, f"{host_name}\nBackup-{NOW} Failed \U0000274C\n{error_message}")
-        exit(1)
+
+
+
+
+
 class SetupError(BaseException):
     def __init__(self, exception_message):
         log.error('Setup Error: '+exception_message)
@@ -47,12 +40,25 @@ class SetupError(BaseException):
 
 class RpiBackup():
     def __init__(self):
+        self.config = read_config(CONFIG_PATH)
         self.working_dir = os.path.dirname(os.path.abspath(sys.argv[0]))  # working dir
-        self.hostname = linux_commands.get_host_name()
         self.credentials_dict = {}
-        self.mnt_path = '/mnt/backups'
+        self.mnt_path = self.config['rpi-backup']['rpi_mount_path']
+        self.ntfy_enabled = BOOL_DICT[self.config['ntfy']['ntfy_enabled'].lower()]
+        self.ntfy_server_topic = self.config['ntfy']['ntfy_server_topic']
+        self.ntfy_user_token = self.config['ntfy']['ntfy_user_token']
+        self.priority_containers = self.config['docker']['priority_containers'].split(',')
+        self.incremental_size = self.config['image-backup']['incremental_size']
+        self.filesize_buffer = self.config['image-backup']['filesize_buffer']
+        self.hostname = linux_commands.get_host_name()
+        self.docker_installed = linux_commands.program_exists('docker')
 
-        self.argument_parsing()  # parse the passed arguments from the CLI
+        try:
+            self.argument_parsing()  # parse the passed arguments from the CLI
+        except SystemExit:
+            print("If you're getting a 'password: expected one arg' error, try placing your password in quotes")
+            exit(2)
+
         if self.argument.setup:
             self.setup()  # Run the setup script to set up auto-mounting
             log.info('Setup Complete!')
@@ -82,8 +88,7 @@ class RpiBackup():
         self.argument = parser.parse_args()
 
     def setup(self):
-
-        setup_log.info('Attempting setup with supplied credentials...')
+        log.info('Attempting setup with supplied credentials...')
         self.credentials_dict = {
             "--networkpath": self.argument.networkpath,
             "--username": self.argument.username,
@@ -92,18 +97,15 @@ class RpiBackup():
         }
 
         for cred in self.credentials_dict:  # let user know if they're missing a flag
-            if cred != "-uid":  # ignore uid, it's optional
+            if cred != "--uid":  # ignore uid, it's optional
                 if self.credentials_dict[cred] is False:
                     raise SetupError(f'Missing {cred} argument from setup')
 
         try:
-            create_cifs_drive(self.credentials_dict['-networkpath'], self.mnt_path, self.credentials_dict['-username'],
-                          self.credentials_dict['-password'])
+            create_cifs_drive(self.credentials_dict['--networkpath'], self.mnt_path, self.credentials_dict['--username'],
+                          self.credentials_dict['--password'])
         except Exception as e:
             raise SetupError(str(e))
-
-
-
 
     def run_backup(self, backup_type = None):
         log.info('Starting Backup...')
@@ -113,7 +115,7 @@ class RpiBackup():
         # Ensure Image-Utils was downloaded and ask user to do so if not
         if os.path.exists(f'{self.working_dir}/image-utils/image-backup') is False:
             log.error("Please Download Image-Utils and place in this folder /rpi_backup/image-utils\nhttps://forums.raspberrypi.com/viewtopic.php?t=332000")
-            ntfy_notify(ntfyServerTopic, ntfyUserToken, f"Backup of {self.hostname} failed, see logs for details.")
+            ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"Backup of {self.hostname} failed, see logs for details.")
             exit(1)
 
 
@@ -127,9 +129,8 @@ class RpiBackup():
         mount_list = str(subprocess.run('mount -l', shell=True, stdout=subprocess.PIPE).stdout.decode("utf-8"))
 
         if '/mnt/backups' not in mount_list:
-            raise BackupFailed(self.hostname, "Bind mount not found. re-run with the -s flag or check your fstab file")
+            self.failed_backup("Bind mount not found. re-run with the -s flag or check your fstab file", backup_started=False)
         log.info("Backup Drive Mounted")
-        # ntfy_notify(ntfyServerTopic, ntfyUserToken, f"Backup of {self.hostname} failed, see logs for details.")
 
         # Get Hostname & see if directory exists on mount target
         self.hostname = linux_commands.get_host_name()
@@ -138,12 +139,17 @@ class RpiBackup():
             log.info(f"Created Backup Directory {self.hostname}")
 
         # Get Filesystem size
-        filesystem_size = linux_commands.get_filesystem_name('GB')
-        log.debug(f"File System Size: {filesystem_size}GB")
+        filesystem_size = linux_commands.get_filesystem_name('MB')
+        log.debug(f"File System Size: {int(filesystem_size/1000)}GB")
 
         # Get uid
         uid = linux_commands.get_uid()
         log.debug(f'Identified user as {uid}')
+
+        # image-utils
+        log.debug(f'Backup buffer: {self.filesize_buffer}')
+        log.debug(f'incremental Size = {self.incremental_size}')
+        backup_image_size = int(filesystem_size + int(self.filesize_buffer))
 
         # Disable Docker
         log.debug("Disabling Docker")
@@ -153,16 +159,18 @@ class RpiBackup():
         try:
             log.debug("Beginning image-backup")
             # backup string
-            os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{self.hostname}/{self.hostname}_$(date +%d-%b-%y_%T).img,{FILESIZE_BUFFER},{INCREMENTAL_SIZE}")
+            os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{self.hostname}/{self.hostname}_$(date +%d-%b-%y_%T).img,{backup_image_size},{self.incremental_size}")
+            # TODO Try to catch "Unable to create backup"
             log.info("image-backup Finishing")
             # Unmount network drive
             os.system("sudo umount /mnt/backups")
             log.info("Backup Drive Unmounted")
         except Exception as e:
-            raise BackupFailed(str(e))
+            self.failed_backup(str(e))
 
 
-        linux_commands.enable_docker('wireguard_pia','portainer') # TODO, add to ini
+
+        linux_commands.enable_docker(self.priority_containers) # TODO, add to ini
         log.info("Docker Re-enabled")
 
 
@@ -170,7 +178,7 @@ class RpiBackup():
         log.info("Backup Completed!")
         notify_datetime = datetime.strftime(datetime.now(), '%b-%d-%Y @ %I:%M%p')
         time.sleep(20)  # Give it time for ntfy to start back up
-        ntfy_notify(ntfyServerTopic, ntfyUserToken, f"Completed Backup for {self.hostname} on {notify_datetime}")
+        ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"{self.hostname}\nBackup-{NOW} Complete! \U00002705")
 
     def enable_cron(self):  # TODO Test this func to make sure it works, make it more configurable
         os.system(f'(crontab -l ; echo "0 0 1 * * {self.working_dir}/rpi_backup_venv/bin/python {self.working_dir}/backup.py -rb>> {self.working_dir}/logs/cron.log") | crontab -')
@@ -200,6 +208,23 @@ class RpiBackup():
         os.system("sudo systemctl daemon-reload")  # reload fstab to daemon
         print('rpi_backups uninstalled, go home and run "rm -r ./rpi_backup" to delete folder')
 
+    def failed_backup(self,error_message, backup_started = True):
+        log.error(f"Backup of {self.hostname} failed:\n{error_message}")
+        if self.ntfy_enabled:  # if ntfy is set up
+            ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token,
+                        f"{self.hostname}\nBackup-{NOW} Failed \U0000274C\n{error_message}")
+        if backup_started is False:
+            exit(1)
+        # Unmount network drive
+        os.system("sudo umount /mnt/backups")
+        if self.docker_installed:  # if docker is installed, disable
+            linux_commands.enable_docker(self.priority_containers)
+        if self.ntfy_enabled:  # if ntfy is set up
+            ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token,
+                        f"{self.hostname}\nBackup-{NOW} Failed \U0000274C\n{error_message}")
+        exit(1)
+
+
 def ntfy_notify(server_plus_topic, token, message):  # Send Notification to ntfy topic
     log.info('Attempting ntfy notification')
     try:
@@ -215,7 +240,17 @@ def ntfy_notify(server_plus_topic, token, message):  # Send Notification to ntfy
         else:
             log.error("NTFY ERROR: " + str(e))
 
+def read_config(config_file):
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    dictionary = {}
+    for section in config.sections():
+        dictionary[section] = {}
+        for option in config.options(section):
+            dictionary[section][option] = config.get(section, option)
+    config = dictionary
+    return (config)
+
 
 if __name__ == '__main__':
     a=RpiBackup()
-    #ntfy_notify(ntfyServerTopic,ntfyUserToken,"ping")

@@ -8,7 +8,9 @@ def get_filesystem_name(unit = None):
     if unit == 'MB':
         filesystem_size = float(filesystem_size) * 1000
     if unit == 'TB':
-        filesystem_size = float(filesystem_size) % 1000
+        filesystem_size = float(filesystem_size) / 1000
+    else:
+        filesystem_size = int(filesystem_size)
     return filesystem_size
 
 
@@ -21,12 +23,12 @@ def disable_docker():
     os.system("sudo systemctl disable docker.socket --now")
     os.system("sudo systemctl disable docker --now")
 
-def enable_docker(*priority_containers):
+def enable_docker(priority_containers):
 
     os.system("sudo systemctl enable docker --now")
     os.system("sudo systemctl enable docker.socket --now")
 
-    if priority_containers != ():
+    if priority_containers != ['']:
         command_string = 'sudo docker start '
         # build priority start command
         for container in priority_containers:
@@ -44,3 +46,13 @@ def enable_docker(*priority_containers):
 
 def get_host_name():
     return str(subprocess.check_output("hostname | cut -d\' \' -f1", shell=True).decode('utf-8')).replace("\n", "")
+
+def program_exists(program_name):
+    results = subprocess.check_output(f'command -v {program_name}', shell=True)
+    if results == "":
+        return False
+    return True
+
+
+if __name__ == '__main__':
+    program_exists('docker')
