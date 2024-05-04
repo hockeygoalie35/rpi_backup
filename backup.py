@@ -2,7 +2,6 @@ import os
 import sys
 import subprocess
 import argparse
-from pi_functions import create_cifs_drive
 from datetime import datetime
 import requests
 import time
@@ -12,13 +11,15 @@ import prettylogging
 
 # TODO: Better error handling, unmount drive and restart containers on error. [x]
 # TODO: ini file for ntfy and setup stuff [x]
-# TODO: incremental backups
-# TODO: Add Fstab check to make sure mount doesn't exist!
+# TODO: incremental backups [x]
+# TODO: Add Fstab check to make sure mount doesn't exist! [x]
 # TODO: Check if Docker is installed [x]
 # TODO: Setup thru config
+# TODO: cron thru config
+# TODO: cron full and incremental
 
 # backup.py
-VERSION = '1.9'
+VERSION = '2.0 Alpha'
 CONFIG_PATH = './config.ini'
 BOOL_DICT = {'true': True, 'false': False}
 
@@ -28,6 +29,9 @@ LOGGER_NAME = 'rpi_backup'
 LOG_OUTPUT_PATH = './logs/Backup-'+NOW+'.log'
 
 log = prettylogging.init_logging(LOGGER_NAME, VERSION, log_file_path=LOG_OUTPUT_PATH, info_color="GREEN")
+
+
+
 
 
 
@@ -52,6 +56,7 @@ class RpiBackup():
         self.filesize_buffer = self.config['image-backup']['filesize_buffer']
         self.hostname = linux_commands.get_host_name()
         self.docker_installed = linux_commands.program_exists('docker')
+        self.uid = linux_commands.get_uid()
 
         try:
             self.argument_parsing()  # parse the passed arguments from the CLI
@@ -63,13 +68,15 @@ class RpiBackup():
             self.setup()  # Run the setup script to set up auto-mounting
             log.info('Setup Complete!')
         if self.argument.runbackup:
-            self.run_backup()  # Run a backup
+            self.run_backup(backup_type='Full')  # Run a backup
+        if self.argument.runincremental:
+            self.run_backup(backup_type='Incremental')  # Run a backup
         if self.argument.enablecron:
             self.enable_cron()  # Enable a cronjob to run at a set interval TODO: (place behind ini)
         if self.argument.disablecron:
             self.disable_cron()  # Disable cronjob
         if self.argument.uninstall:
-            answer = input("Are you sure you want to uninstall? y/n")
+            answer = input("Are you sure you want to uninstall? y/n\n")
             if answer == "y":
                 self.wipe_rpi_backup()  # Remove application
 
@@ -102,13 +109,18 @@ class RpiBackup():
                     raise SetupError(f'Missing {cred} argument from setup')
 
         try:
-            create_cifs_drive(self.credentials_dict['--networkpath'], self.mnt_path, self.credentials_dict['--username'],
-                          self.credentials_dict['--password'])
+            self.create_cifs_drive()
         except Exception as e:
             raise SetupError(str(e))
 
+    def get_latest_backup(self):
+        # Get current log file
+        path = self.mnt_path + f'/{self.hostname}/'
+        latest_file = max([os.path.join(path, f) for f in os.listdir(path) if self.hostname in f], key=os.path.getctime)
+        return latest_file
+
     def run_backup(self, backup_type = None):
-        log.info('Starting Backup...')
+        log.info(f'Starting {backup_type} Backup...')
         if backup_type is None:
             log.warning(f'Backup type not set, assuming full.')
 
@@ -118,9 +130,7 @@ class RpiBackup():
             ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"Backup of {self.hostname} failed, see logs for details.")
             exit(1)
 
-
-        log.info("Backup Starting....")
-
+        log.debug("Backup Starting....")
         # Mount network drive
         os.system("sudo systemctl daemon-reload")  # reload fstab to daemon
         os.system("sudo mount /mnt/backups")  # mount drive
@@ -131,6 +141,8 @@ class RpiBackup():
         if '/mnt/backups' not in mount_list:
             self.failed_backup("Bind mount not found. re-run with the -s flag or check your fstab file", backup_started=False)
         log.info("Backup Drive Mounted")
+
+
 
         # Get Hostname & see if directory exists on mount target
         self.hostname = linux_commands.get_host_name()
@@ -158,9 +170,16 @@ class RpiBackup():
 
         try:
             log.debug("Beginning image-backup")
-            # backup string
-            os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{self.hostname}/{self.hostname}_$(date +%d-%b-%y_%T).img,{backup_image_size},{self.incremental_size}")
-            # TODO Try to catch "Unable to create backup"
+            if backup_type == 'Incremental':
+                backup_path = self.get_latest_backup()
+                log.debug(f"Incremental Backup of last full {backup_path}")
+                # incremental backup string
+                os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup {backup_path}")
+            else:
+                # full backup string
+                log.debug("Full Backup")
+                os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{self.hostname}/{self.hostname}_$(date +%d-%b-%y_%T).img,{backup_image_size},{self.incremental_size}")
+                # TODO Try to catch "Unable to create backup"
             log.info("image-backup Finishing")
             # Unmount network drive
             os.system("sudo umount /mnt/backups")
@@ -178,7 +197,11 @@ class RpiBackup():
         log.info("Backup Completed!")
         notify_datetime = datetime.strftime(datetime.now(), '%b-%d-%Y @ %I:%M%p')
         time.sleep(20)  # Give it time for ntfy to start back up
-        ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"{self.hostname}\nBackup-{NOW} Complete! \U00002705")
+        if backup_type == 'incremental':
+            ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token,f"{self.hostname}\nBackup-{NOW} Complete! \U00002705")
+            #TODO strip out incremental
+        else:
+            ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"{self.hostname}\nBackup-{NOW} Complete! \U00002705")
 
     def enable_cron(self):  # TODO Test this func to make sure it works, make it more configurable
         os.system(f'(crontab -l ; echo "0 0 1 * * {self.working_dir}/rpi_backup_venv/bin/python {self.working_dir}/backup.py -rb>> {self.working_dir}/logs/cron.log") | crontab -')
@@ -191,7 +214,7 @@ class RpiBackup():
         log.info("cronjob disabled")
 
     def wipe_rpi_backup(self): # wipes rpi_backups to test deployment
-        log.info('Unmounting drive')
+        log.debug('Unmounting drive')
         os.system(f"sudo umount /mnt/backups")  # unmount backups
         mount_list = str(subprocess.run('mount -l', shell=True, stdout=subprocess.PIPE).stdout.decode("utf-8"))
         if '/mnt/backups' not in mount_list:
@@ -206,7 +229,7 @@ class RpiBackup():
         os.system(f"sudo sed -i.bak '/backups/d' /etc/fstab")  # remove the line from Fstab
         log.info("Removed line from FSTAB")
         os.system("sudo systemctl daemon-reload")  # reload fstab to daemon
-        print('rpi_backups uninstalled, go home and run "rm -r ./rpi_backup" to delete folder')
+        log.info('rpi_backups uninstalled, go home and run "rm -r ./rpi_backup" to delete folder')
 
     def failed_backup(self,error_message, backup_started = True):
         log.error(f"Backup of {self.hostname} failed:\n{error_message}")
@@ -223,6 +246,50 @@ class RpiBackup():
             ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token,
                         f"{self.hostname}\nBackup-{NOW} Failed \U0000274C\n{error_message}")
         exit(1)
+
+    def create_cifs_drive(self):
+        # build fstab string
+        fstab_string = f"{self.credentials_dict['--networkpath']} {self.mnt_path} cifs username={self.credentials_dict['--username']},password={self.credentials_dict['--password']},uid={self.uid}"
+
+        if "$" in fstab_string:  # if $ in any argument, add an escape slash so it doesn't get treated as bash variable
+            fstab_string_formatted = fstab_string.replace('$', '\$')
+        else:
+            fstab_string_formatted = fstab_string
+
+            # Attempt to create mount point
+        if os.path.exists(self.mnt_path) is False:
+            try:
+                os.system(f'sudo mkdir {self.mnt_path}')
+                log.info(f"Created mounting folder {self.mnt_path}")
+            except:
+                raise SetupError("Could not create mounting folder. See above error.")
+
+        create_cifs = True  # Check to see if line is in Fstab for some reason
+        with open('/etc/fstab') as fstab:
+            if fstab_string in fstab.read():
+                create_cifs = False
+        fstab.close()
+        log.debug(f'string to be added to fstab: {fstab_string_formatted}')
+        if create_cifs is True:
+            os.system(f"sudo su -c \"echo '{fstab_string_formatted}' >> /etc/fstab\"")  # add string to fstab
+            log.info("Created drive mount link in /etc/fstab")
+        else:
+            log.warning("Drive mount link already found in /etc/fstab")
+        os.system("sudo systemctl daemon-reload")  # reload fstab to daemon
+
+        log.debug('Attempting to mount network drive...')
+        os.system(f'sudo  mount {self.mnt_path}')  # Attempt to activate mount
+        # Get list of mounts
+        mount_list = str(subprocess.run('mount -l', shell=True, stdout=subprocess.PIPE).stdout.decode("utf-8"))
+        if self.mnt_path in mount_list:
+            log.info("Mount Success!")
+            os.system(f'sudo  umount {self.mnt_path}')  # Attempt to activate mount
+            log.info(f"Unmounted drive, remount with 'sudo mount {self.mnt_path}'")
+        else:
+            log.error("Mount Error! See above error and adjust your flags")
+            search_string = self.mnt_path.replace('/', '[/]')
+            os.system(f"sudo sed -i.bak '/{search_string}/d' /etc/fstab")  # remove the line from Fstab
+            raise SetupError(f"Removed faulty string from fstab: {fstab_string_formatted}")
 
 
 def ntfy_notify(server_plus_topic, token, message):  # Send Notification to ntfy topic
