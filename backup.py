@@ -9,32 +9,20 @@ import configparser
 import linux_commands
 import prettylogging
 
-# TODO: Better error handling, unmount drive and restart containers on error. [x]
-# TODO: ini file for ntfy and setup stuff [x]
-# TODO: incremental backups [x]
-# TODO: Add Fstab check to make sure mount doesn't exist! [x]
-# TODO: Check if Docker is installed [x]
-# TODO: Setup thru config
-# TODO: cron thru config
-# TODO: cron full and incremental
 
 # backup.py
 VERSION = '2.0 Alpha'
-CONFIG_PATH = './config.ini'
+
 BOOL_DICT = {'true': True, 'false': False}
+WORKING_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
+CONFIG_PATH = f'{WORKING_DIR}/config.ini'
 
 # Logging Consts
 NOW = datetime.strftime(datetime.now(), "%b-%d-%Y-%H-%M-%S")
 LOGGER_NAME = 'rpi_backup'
-LOG_OUTPUT_PATH = './logs/Backup-'+NOW+'.log'
+LOG_OUTPUT_PATH = f'{WORKING_DIR}/logs/Backup-'+NOW+'.log'
 
 log = prettylogging.init_logging(LOGGER_NAME, VERSION, log_file_path=LOG_OUTPUT_PATH, info_color="GREEN")
-
-
-
-
-
-
 
 
 class SetupError(BaseException):
@@ -42,10 +30,10 @@ class SetupError(BaseException):
         log.error('Setup Error: '+exception_message)
         exit(1)
 
-class RpiBackup():
+
+class RpiBackup:
     def __init__(self):
         self.config = read_config(CONFIG_PATH)
-        self.working_dir = os.path.dirname(os.path.abspath(sys.argv[0]))  # working dir
         self.credentials_dict = {}
         self.mnt_path = self.config['rpi-backup']['rpi_mount_path']
         self.ntfy_enabled = BOOL_DICT[self.config['ntfy']['ntfy_enabled'].lower()]
@@ -54,6 +42,7 @@ class RpiBackup():
         self.priority_containers = self.config['docker']['priority_containers'].split(',')
         self.incremental_size = self.config['image-backup']['incremental_size']
         self.filesize_buffer = self.config['image-backup']['filesize_buffer']
+        self.cron_interval = self.config['cronjob']['cron_run_interval']
         self.hostname = linux_commands.get_host_name()
         self.docker_installed = linux_commands.program_exists('docker')
         self.uid = linux_commands.get_uid()
@@ -72,7 +61,7 @@ class RpiBackup():
         if self.argument.runincremental:
             self.run_backup(backup_type='Incremental')  # Run a backup
         if self.argument.enablecron:
-            self.enable_cron()  # Enable a cronjob to run at a set interval TODO: (place behind ini)
+            self.enable_cron()  # Enable a cronjob to run at a set interval
         if self.argument.disablecron:
             self.disable_cron()  # Disable cronjob
         if self.argument.uninstall:
@@ -82,10 +71,10 @@ class RpiBackup():
 
     def argument_parsing(self):
         parser = argparse.ArgumentParser(description="CLI Commands")
-        parser.add_argument("-s", "--setup",help="initial setup, supply path, username, password and uid if user is not pi",required=False, default=False, action='store_true')
+        parser.add_argument("-s", "--setup", help="initial setup, supply path, username, password and uid if user is not pi", required=False, default=False, action='store_true')
         parser.add_argument("-rb", "--runbackup", help="run full backup", required=False, default=False, action='store_true')
-        parser.add_argument("-ec", "--enablecron", help="enables cronjob to schedule backup", required=False,default=False, action='store_true')
-        parser.add_argument("-dc", "--disablecron", help="enables cronjob to schedule backup", required=False,default=False, action='store_true')
+        parser.add_argument("-ec", "--enablecron", help="enables cronjob to schedule backup", required=False, default=False, action='store_true')
+        parser.add_argument("-dc", "--disablecron", help="enables cronjob to schedule backup", required=False, default=False, action='store_true')
         parser.add_argument("-np", "--networkpath", help="path to network share", required=False, default=False)
         parser.add_argument("-u", "--username", help="network share username", required=False, default=False)
         parser.add_argument("-p", "--password", help="network share password", required=False, default=False)
@@ -119,30 +108,28 @@ class RpiBackup():
         latest_file = max([os.path.join(path, f) for f in os.listdir(path) if self.hostname in f], key=os.path.getctime)
         return latest_file
 
-    def run_backup(self, backup_type = None):
-        log.info(f'Starting {backup_type} Backup...')
+    def run_backup(self, backup_type=None):
+        log.info(f'Running {backup_type} Backup...')
+        log.info("If using cron, check cron.log for terminal output.")
+        os.system(f'echo "Check {LOG_OUTPUT_PATH} in case of error" >> {WORKING_DIR}/logs/cron.log')
         if backup_type is None:
             log.warning(f'Backup type not set, assuming full.')
 
         # Ensure Image-Utils was downloaded and ask user to do so if not
-        if os.path.exists(f'{self.working_dir}/image-utils/image-backup') is False:
+        if os.path.exists(f'{WORKING_DIR}/image-utils/image-backup') is False:
             log.error("Please Download Image-Utils and place in this folder /rpi_backup/image-utils\nhttps://forums.raspberrypi.com/viewtopic.php?t=332000")
             ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"Backup of {self.hostname} failed, see logs for details.")
             exit(1)
 
-        log.debug("Backup Starting....")
         # Mount network drive
         os.system("sudo systemctl daemon-reload")  # reload fstab to daemon
         os.system("sudo mount /mnt/backups")  # mount drive
-
 
         mount_list = str(subprocess.run('mount -l', shell=True, stdout=subprocess.PIPE).stdout.decode("utf-8"))
 
         if '/mnt/backups' not in mount_list:
             self.failed_backup("Bind mount not found. re-run with the -s flag or check your fstab file", backup_started=False)
         log.info("Backup Drive Mounted")
-
-
 
         # Get Hostname & see if directory exists on mount target
         self.hostname = linux_commands.get_host_name()
@@ -163,23 +150,23 @@ class RpiBackup():
         log.debug(f'incremental Size = {self.incremental_size}')
         backup_image_size = int(filesystem_size + int(self.filesize_buffer))
 
-        # Disable Docker
-        log.debug("Disabling Docker")
-        linux_commands.disable_docker()
-        log.info("Docker disabled (Temporarily)")
+        # Disable Docker if installed
+        if self.docker_installed:  # if docker is installed, disable
+            log.debug("Disabling Docker")
+            linux_commands.disable_docker()
+            log.info("Docker disabled (Temporarily)")
 
         try:
             log.debug("Beginning image-backup")
             if backup_type == 'Incremental':
                 backup_path = self.get_latest_backup()
-                log.debug(f"Incremental Backup of last full {backup_path}")
+                log.debug(f"Starting Incremental Backup of last full: {backup_path}")
                 # incremental backup string
                 os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup {backup_path}")
             else:
                 # full backup string
-                log.debug("Full Backup")
+                log.debug("Starting Full Backup")
                 os.system(f"sudo bash /home/{uid}/rpi_backup/image-utils/image-backup -i /mnt/backups/{self.hostname}/{self.hostname}_$(date +%d-%b-%y_%T).img,{backup_image_size},{self.incremental_size}")
-                # TODO Try to catch "Unable to create backup"
             log.info("image-backup Finishing")
             # Unmount network drive
             os.system("sudo umount /mnt/backups")
@@ -187,33 +174,29 @@ class RpiBackup():
         except Exception as e:
             self.failed_backup(str(e))
 
-
-
-        linux_commands.enable_docker(self.priority_containers) # TODO, add to ini
-        log.info("Docker Re-enabled")
-
-
+        if self.docker_installed:  # if docker is installed, disable
+            linux_commands.enable_docker(self.priority_containers)
+            log.info("Docker Re-enabled")
 
         log.info("Backup Completed!")
-        notify_datetime = datetime.strftime(datetime.now(), '%b-%d-%Y @ %I:%M%p')
         time.sleep(20)  # Give it time for ntfy to start back up
         if backup_type == 'incremental':
-            ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token,f"{self.hostname}\nBackup-{NOW} Complete! \U00002705")
-            #TODO strip out incremental
+            ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"{self.hostname}\nBackup-{NOW} Complete! \U00002705")
         else:
             ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"{self.hostname}\nBackup-{NOW} Complete! \U00002705")
 
-    def enable_cron(self):  # TODO Test this func to make sure it works, make it more configurable
-        os.system(f'(crontab -l ; echo "0 0 1 * * {self.working_dir}/rpi_backup_venv/bin/python {self.working_dir}/backup.py -rb>> {self.working_dir}/logs/cron.log") | crontab -')
-        os.system(f'echo "# Log for Backups running through Cron" > {self.working_dir}/logs/cron.log')
-        os.system(f'echo "---------------------------------------" >> {self.working_dir}/logs/cron.log')
-        log.info("cronjob enabled")
+    def enable_cron(self):
+        if self.cron_interval != '':
+            os.system(f'(crontab -l ; echo "{self.cron_interval} {WORKING_DIR}/rpi_backup_venv/bin/python {WORKING_DIR}/backup.py -rb >> {WORKING_DIR}/logs/cron.log") | crontab -')
+            os.system(f'echo "# Log for Backups running through Cron" > {WORKING_DIR}/logs/cron.log')
+            os.system(f'echo "---------------------------------------" >> {WORKING_DIR}/logs/cron.log')
+            log.info(f"cronjob enabled, with interval {self.cron_interval}")
 
     def disable_cron(self):
-        os.system(f"crontab -l | grep -v '{self.working_dir}/rpi_backup_venv/bin/python {self.working_dir}/backup.py -rb'  | crontab -")
+        os.system(f"crontab -l | grep -v '/rpi_backup_venv/bin/python'  | crontab -")
         log.info("cronjob disabled")
 
-    def wipe_rpi_backup(self): # wipes rpi_backups to test deployment
+    def wipe_rpi_backup(self):  # wipes rpi_backups to test deployment
         log.debug('Unmounting drive')
         os.system(f"sudo umount /mnt/backups")  # unmount backups
         mount_list = str(subprocess.run('mount -l', shell=True, stdout=subprocess.PIPE).stdout.decode("utf-8"))
@@ -222,16 +205,16 @@ class RpiBackup():
         else:
             log.error("Backup Drive Could Not Be Unmounted")
             exit(1)
-        os.system(f"crontab -l | grep -v '{self.working_dir}/rpi_backup_venv/bin/python {self.working_dir}/backup.py -rb'  | crontab -")
+        os.system(f"crontab -l | grep -v '{WORKING_DIR}/rpi_backup_venv/bin/python {WORKING_DIR}/backup.py -rb'  | crontab -")
         log.info("cronjob disabled")
-        os.system('sudo rm -r /mnt/backups') # delete backup location
+        os.system('sudo rm -r /mnt/backups')  # delete backup location
         log.info("deleted /mnt/backups")
         os.system(f"sudo sed -i.bak '/backups/d' /etc/fstab")  # remove the line from Fstab
         log.info("Removed line from FSTAB")
         os.system("sudo systemctl daemon-reload")  # reload fstab to daemon
         log.info('rpi_backups uninstalled, go home and run "rm -r ./rpi_backup" to delete folder')
 
-    def failed_backup(self,error_message, backup_started = True):
+    def failed_backup(self, error_message, backup_started=True):
         log.error(f"Backup of {self.hostname} failed:\n{error_message}")
         if self.ntfy_enabled:  # if ntfy is set up
             ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token,
@@ -251,7 +234,7 @@ class RpiBackup():
         # build fstab string
         fstab_string = f"{self.credentials_dict['--networkpath']} {self.mnt_path} cifs username={self.credentials_dict['--username']},password={self.credentials_dict['--password']},uid={self.uid}"
 
-        if "$" in fstab_string:  # if $ in any argument, add an escape slash so it doesn't get treated as bash variable
+        if "$" in fstab_string:  # if $ in any argument, add an escape slash, so it doesn't get treated as bash variable
             fstab_string_formatted = fstab_string.replace('$', '\$')
         else:
             fstab_string_formatted = fstab_string
@@ -306,6 +289,7 @@ def ntfy_notify(server_plus_topic, token, message):  # Send Notification to ntfy
             log.error("ntfy ERROR: Check if server and user token correct in extended.conf")
         else:
             log.error("NTFY ERROR: " + str(e))
+
 
 def read_config(config_file):
     config = configparser.ConfigParser()
