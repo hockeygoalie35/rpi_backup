@@ -12,8 +12,10 @@
 
 - [X] TODO: cron thru config
 
--[ ] TODO: Backup Management (max to keep)
-
 - [X] TODO: Check if Docker is installed
+
+- [X] Add 'echo see log for details' since logger not showing in cron log.
+
 - [ ] TODO Try to catch "Unable to create backup" error when file buffer too small
-- [ ] Add 'echo see log for details' since logger not showing in cron log.
+
+- [ ] TODO: Backup Management (max to keep)
