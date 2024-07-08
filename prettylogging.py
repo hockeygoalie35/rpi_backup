@@ -120,3 +120,14 @@ if __name__ == '__main__':
     test.error("error message")
     test.critical("critical message")
     test.fatal("fatal message")
+
+
+# Example init
+
+# Logging Consts
+# WORKING_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
+# NOW = datetime.strftime(datetime.now(), "%b-%d-%Y-%H-%M-%S")
+# LOGGER_NAME = 'rpi_backup'
+# LOG_OUTPUT_PATH = f'{WORKING_DIR}/logs/Backup-'+NOW+'.log'
+#
+# log = prettylogging.init_logging(LOGGER_NAME, VERSION, log_file_path=LOG_OUTPUT_PATH, info_color="GREEN")

@@ -9,6 +9,7 @@ import configparser
 import linux_commands
 import prettylogging
 
+#TODO: Correct logging "NOW" time?
 
 # backup.py
 VERSION = '2.0 Alpha'
@@ -118,7 +119,8 @@ class RpiBackup:
         # Ensure Image-Utils was downloaded and ask user to do so if not
         if os.path.exists(f'{WORKING_DIR}/image-utils/image-backup') is False:
             log.error("Please Download Image-Utils and place in this folder /rpi_backup/image-utils\nhttps://forums.raspberrypi.com/viewtopic.php?t=332000")
-            ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"Backup of {self.hostname} failed, see logs for details.")
+            if self.ntfy_enabled is True:
+                ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"Backup of {self.hostname} failed, see logs for details.")
             exit(1)
 
         # Mount network drive
@@ -179,6 +181,8 @@ class RpiBackup:
             log.info("Docker Re-enabled")
 
         log.info("Backup Completed!")
+        if self.ntfy_enabled is False:
+            exit(0)
         time.sleep(20)  # Give it time for ntfy to start back up
         if backup_type == 'incremental':
             ntfy_notify(self.ntfy_server_topic, self.ntfy_user_token, f"{self.hostname}\nBackup-{NOW} Complete! \U00002705")
